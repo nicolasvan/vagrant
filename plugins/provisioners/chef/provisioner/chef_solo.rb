@@ -109,6 +109,8 @@ module VagrantPlugins
               opts = {}
               opts[:id] = "v-#{prefix}-#{self.class.get_and_update_counter(:shared_folder)}"
               opts[:type] = @config.synced_folder_type if @config.synced_folder_type
+              opts[:smb_username] = @config.smb_username if @config.smb_username
+              opts[:smb_password] = @config.smb_password if @config.smb_password
 
               root_config.vm.synced_folder(local_path, remote_path, opts)
             end

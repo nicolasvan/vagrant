@@ -10,7 +10,9 @@ module VagrantPlugins
         attr_accessor :recipe_url
         attr_accessor :roles_path
         attr_accessor :synced_folder_type
-
+        attr_accessor :smb_username
+        attr_accessor :smb_password
+        
         def initialize
           super
 
@@ -20,6 +22,8 @@ module VagrantPlugins
           @recipe_url                = UNSET_VALUE
           @roles_path                = UNSET_VALUE
           @synced_folder_type        = UNSET_VALUE
+          @smb_username              = UNSET_VALUE
+          @smb_password              = UNSET_VALUE
         end
 
         def nfs=(value)
@@ -43,6 +47,8 @@ module VagrantPlugins
 
           @recipe_url = nil if @recipe_url == UNSET_VALUE
           @synced_folder_type = nil if @synced_folder_type == UNSET_VALUE
+          @smb_username = nil if @smb_username = UNSET_VALUE
+          @smb_password = nil if @smb_password = UNSET_VALUE
 
           if @cookbooks_path == UNSET_VALUE
             @cookbooks_path = []
