@@ -184,7 +184,10 @@ module VagrantPlugins
                   end
                 end
               rescue Vagrant::Errors::VBoxManageError
-                # ignore this error. The vm might have been deleted by another process after we called 'vboxmanage list vms'
+                raise if !e.extra_data[:stderr].include?("VBOX_E_OBJECT_NOT_FOUND")
+
+                # We got VBOX_E_OBJECT_NOT_FOUND. This means the vm must have been deleted
+                # by another process after we called 'vboxmanage list vms'. Ignore this error.
               end
             end
           end
@@ -574,8 +577,10 @@ module VagrantPlugins
                   ports << hostport
                 end
               rescue Vagrant::Errors::VBoxManageError
-                # Ignore this error. Vboxmanage could not execute showvminfo which could be
-                # because the vm was deleted by another virtualbox/vagrant process.
+                raise if !e.extra_data[:stderr].include?("VBOX_E_OBJECT_NOT_FOUND")
+
+                # We got VBOX_E_OBJECT_NOT_FOUND. This means the vm must have been deleted
+                # by another process after we called 'vboxmanage list vms'. Ignore this error.
               end
             end
           end
