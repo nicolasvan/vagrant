@@ -128,18 +128,23 @@ module Vagrant
           uuid = data["id"]
 
           entry = Entry.new(uuid, data)
-
-          # Lock this machine
-          lock_file = lock_machine(uuid)
-          if !lock_file
-            raise Errors::MachineLocked,
-              name: entry.name,
-              provider: entry.provider
-          end
-
-          @machine_locks[uuid] = lock_file
         end
       end
+
+      # Lock this machine
+      # Note that we do this outside of @lock.synchronize to avoid deadlocks.
+      # Thread 1 calls machine_index.get(uuid). Enter @lock.synchronize, get a exclusive lock on uuid.lock, exit @lock.synchronize
+      # Thread 2 calls machine_index.get(uuid). Enter @lock.synchronize, can't get a lock on uuid.lock until Thread 1 releases it
+      # Thread 1 calls Machine_index.release(). Cannot enter @lock.synchronize, so cannot release the lock on the machine.
+      # :boom:
+      lock_file = lock_machine(uuid)
+      if !lock_file
+        raise Errors::MachineLocked,
+          name: entry.name,
+          provider: entry.provider
+      end
+
+      @machine_locks[uuid] = lock_file
 
       entry
     end
