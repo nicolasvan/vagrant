@@ -48,6 +48,7 @@ module Vagrant
       @index_file = data_dir.join("index")
       @lock       = Monitor.new
       @machines  = {}
+      @machine_lock = Monitor.new
       @machine_locks = {}
       @logger     = Log4r::Logger.new("vagrant::machine_index")
 
@@ -79,11 +80,11 @@ module Vagrant
           unlocked_reload
           @machines.delete(entry.id)
           unlocked_save
-
-          # Release access on this machine
-          unlocked_release(entry.id)
         end
       end
+
+      # Release access on this machine
+      release(entry)
 
       true
     end
@@ -131,12 +132,6 @@ module Vagrant
         end
       end
 
-      # Lock this machine
-      # Note that we do this outside of @lock.synchronize to avoid deadlocks.
-      # Thread 1 calls machine_index.get(uuid). Enter @lock.synchronize, get a exclusive lock on uuid.lock, exit @lock.synchronize
-      # Thread 2 calls machine_index.get(uuid). Enter @lock.synchronize, can't get a lock on uuid.lock until Thread 1 releases it
-      # Thread 1 calls Machine_index.release(). Cannot enter @lock.synchronize, so cannot release the lock on the machine.
-      # :boom:
       lock_file = lock_machine(uuid)
       if !lock_file
         raise Errors::MachineLocked,
@@ -171,8 +166,20 @@ module Vagrant
     #
     # @param [Entry] entry
     def release(entry)
-      @lock.synchronize do
-        unlocked_release(entry.id)
+      @machine_lock.synchronize do
+        lock_file = @machine_locks[entry.id]
+        if lock_file
+          @logger.info("Unlocking #{entry.id}.lock :).")
+          lock_file.close
+          @logger.info("#{entry.id}.lock is unlocked by caller: \n#{caller}\n")
+          begin
+            File.delete(lock_file.path)
+          rescue Errno::EACCES
+            # Another process is probably opened it, no problem.
+          end
+
+          @machine_locks.delete(entry.id)
+        end
       end
     end
 
@@ -195,8 +202,11 @@ module Vagrant
       # Set an ID if there isn't one already set
       id     = entry.id
 
+      @logger.info("set with #{id}: attempting to get @lock.synchronize")
       @lock.synchronize do
+        @logger.info("set with #{id}: now in @lock.synchronize. attempting to get 'with_index_lock'")
         with_index_lock do
+          @logger.info("set with #{id}: now in 'with_index_lock'")
           # Reload so we have the latest machine data. This allows other
           # processes to update their own machines without conflicting
           # with our own.
@@ -232,8 +242,11 @@ module Vagrant
           # Set our machine and save
           @machines[id] = struct
           unlocked_save
+          @logger.info("set with #{id}: exiting 'with_index_lock'")
         end
+        @logger.info("set with #{id}: exited 'with_index_lock'. exiting @lock.synchronize")
       end
+      @logger.info("set with #{id}: exited @lock.synchronize")
 
       Entry.new(id, struct)
     end
@@ -263,41 +276,16 @@ module Vagrant
       lock_path = @data_dir.join("#{uuid}.lock")
       lock_file = lock_path.open("w+")
 
-      begin
-        Timeout.timeout(1) do
-          while lock_file.flock(File::LOCK_EX | File::LOCK_NB) === false
-            @logger.info("#{uuid}.lock is already locked. Sleeping 0.1s before trying again.")
-            sleep 0.1
-          end
-          @logger.info("Got a lock on #{uuid}.lock :). caller: \n#{caller}\n")
-        end
-      rescue Timeout::Error
-        lock_file.close
-        lock_file = nil
-        @logger.info("#{uuid}.lock could not be locked. caller: \n#{caller}\n")
+      @logger.debug("Attempting to acquire machine-lock: #{uuid}")
+
+      while lock_file.flock(File::LOCK_EX | File::LOCK_NB) === false
+        @logger.warn("Machine-lock in use: #{uuid}")
+        sleep 0.2
       end
+
+      @logger.info("Acquired machine lock: #{uuid}")
 
       lock_file
-    end
-
-    # Releases a local lock on a machine. This does not acquire any locks
-    # so make sure to lock around it.
-    #
-    # @param [String] id
-    def unlocked_release(id)
-      lock_file = @machine_locks[id]
-      if lock_file
-        @logger.info("Unlocking #{id}.lock :).")
-        lock_file.close
-        @logger.info("#{id}.lock is unlocked by caller: \n#{caller}\n")
-        begin
-          File.delete(lock_file.path)
-        rescue Errno::EACCES
-          # Another process is probably opened it, no problem.
-        end
-
-        @machine_locks.delete(id)
-      end
     end
 
     # This will reload the data without locking the index. It is assumed
@@ -337,6 +325,7 @@ module Vagrant
     # This will hold a lock to the index so it can be read or updated.
     def with_index_lock
       lock_path = "#{@index_file}.lock"
+      @logger.info("Attempting to acquire lock on index.lock")
       File.open(lock_path, "w+") do |f|
         f.flock(File::LOCK_EX)
         yield
