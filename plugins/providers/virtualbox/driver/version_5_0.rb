@@ -176,11 +176,15 @@ module VagrantPlugins
 
           execute("list", "vms", retryable: true).split("\n").each do |line|
             if line =~ /^".+?"\s+\{(.+?)\}$/
-              info = execute("showvminfo", $1.to_s, "--machinereadable", retryable: true)
-              info.split("\n").each do |inner_line|
-                if inner_line =~ /^hostonlyadapter\d+="(.+?)"$/
-                  networks.delete($1.to_s)
+              begin
+                info = execute("showvminfo", $1.to_s, "--machinereadable", retryable: true)
+                info.split("\n").each do |inner_line|
+                  if inner_line =~ /^hostonlyadapter\d+="(.+?)"$/
+                    networks.delete($1.to_s)
+                  end
                 end
+              rescue Vagrant::Errors::VBoxManageError
+                # ignore this error. The vm might have been deleted by another process after we called 'vboxmanage list vms'
               end
             end
           end
@@ -565,8 +569,13 @@ module VagrantPlugins
               # Ignore our own used ports
               next if uuid == @uuid
 
-              read_forwarded_ports(uuid, true).each do |_, _, hostport, _|
-                ports << hostport
+              begin
+                read_forwarded_ports(uuid, true).each do |_, _, hostport, _|
+                  ports << hostport
+                end
+              rescue Vagrant::Errors::VBoxManageError
+                # Ignore this error. Vboxmanage could not execute showvminfo which could be
+                # because the vm was deleted by another virtualbox/vagrant process.
               end
             end
           end
