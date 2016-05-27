@@ -2,6 +2,7 @@ require "json"
 require "pathname"
 require "securerandom"
 require "thread"
+require "timeout"
 
 require "vagrant/util/silence_warnings"
 
@@ -48,6 +49,7 @@ module Vagrant
       @lock       = Monitor.new
       @machines  = {}
       @machine_locks = {}
+      @logger     = Log4r::Logger.new("vagrant::machine_index")
 
       with_index_lock do
         unlocked_reload
@@ -255,9 +257,19 @@ module Vagrant
     def lock_machine(uuid)
       lock_path = @data_dir.join("#{uuid}.lock")
       lock_file = lock_path.open("w+")
-      if lock_file.flock(File::LOCK_EX | File::LOCK_NB) === false
+
+      begin
+        Timeout.timeout(1) do
+          while lock_file.flock(File::LOCK_EX | File::LOCK_NB) === false
+            @logger.info("#{uuid}.lock is already locked. Sleeping 0.1s before trying again.")
+            sleep 0.1
+          end
+          @logger.info("Got a lock on #{uuid}.lock :). caller: \n#{caller}\n")
+        end
+      rescue Timeout::Error
         lock_file.close
         lock_file = nil
+        @logger.info("#{uuid}.lock could not be locked. caller: \n#{caller}\n")
       end
 
       lock_file
@@ -270,7 +282,9 @@ module Vagrant
     def unlocked_release(id)
       lock_file = @machine_locks[id]
       if lock_file
+        @logger.info("Unlocking #{id}.lock :).")
         lock_file.close
+        @logger.info("#{id}.lock is unlocked by caller: \n#{caller}\n")
         begin
           File.delete(lock_file.path)
         rescue Errno::EACCES
