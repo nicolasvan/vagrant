@@ -73,23 +73,6 @@ describe VagrantPlugins::SyncedFolderRSync::RsyncHelper do
       subject.rsync_single(machine, ssh_info, opts)
     end
 
-    it "doesn't call cygwin_path on non-Windows" do
-      Vagrant::Util::Platform.stub(windows?: false)
-      expect(Vagrant::Util::Platform).not_to receive(:cygwin_path)
-      subject.rsync_single(machine, ssh_info, opts)
-    end
-
-    it "calls cygwin_path on Windows" do
-      Vagrant::Util::Platform.stub(windows?: true)
-      expect(Vagrant::Util::Platform).to receive(:cygwin_path).and_return("foo")
-
-      expect(Vagrant::Util::Subprocess).to receive(:execute).with { |*args|
-        expect(args[args.length - 3]).to eql("foo/")
-      }
-
-      subject.rsync_single(machine, ssh_info, opts)
-    end
-
     it "raises an error if the exit code is non-zero" do
       Vagrant::Util::Subprocess.stub(
         execute: Vagrant::Util::Subprocess::Result.new(1, "", ""))
