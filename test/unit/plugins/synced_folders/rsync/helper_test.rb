@@ -108,6 +108,21 @@ describe VagrantPlugins::SyncedFolderRSync::RsyncHelper do
 
         subject.rsync_single(machine, ssh_info, opts)
       end
+
+      it "converts host path to cygwin path on Windows" do
+        Vagrant::Util::Platform.stub(windows?: true)
+        opts[:hostpath] = "C:\\test\\path"
+        opts[:guestpath] = "/bar"
+
+        expected_hostpath = '/cygdrive/C/test/path'
+
+        expect(Vagrant::Util::Subprocess).to receive(:execute).with { |*args|
+          expect(args[args.length - 3]).to eql("#{expected_hostpath}/")
+          expect(args[args.length - 2]).to include("/bar")
+        }
+
+        subject.rsync_single(machine, ssh_info, opts)
+      end
     end
 
     it "executes within the root path" do
